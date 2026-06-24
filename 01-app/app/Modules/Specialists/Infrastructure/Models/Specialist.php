@@ -25,6 +25,7 @@ class Specialist extends Model
         'license_number',
         'bio',
         'status',
+        'consultation_duration_minutes',
     ];
 
     protected function casts(): array
@@ -47,6 +48,11 @@ class Specialist extends Model
     public function appointments(): HasMany
     {
         return $this->hasMany(Appointment::class);
+    }
+
+    public function availabilities(): HasMany
+    {
+        return $this->hasMany(SpecialistAvailability::class);
     }
 
     public function fullName(): string

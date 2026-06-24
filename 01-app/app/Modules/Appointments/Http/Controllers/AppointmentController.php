@@ -45,7 +45,7 @@ class AppointmentController extends Controller
         $specialties = Specialty::query()->where('is_active', true)->orderBy('name')->get();
 
         $specialists = Specialist::query()
-            ->with('specialties')
+            ->with(['specialties', 'availabilities'])
             ->where('status', ProfileStatus::Active)
             ->orderBy('last_name')
             ->get();
@@ -65,19 +65,51 @@ class AppointmentController extends Controller
         ]);
 
         $specialist = Specialist::query()
+            ->with('availabilities')
             ->where('id', $validated['specialist_id'])
             ->where('status', ProfileStatus::Active)
             ->whereHas('specialties', fn ($query) => $query->where('specialties.id', $validated['specialty_id']))
             ->firstOrFail();
 
-        $scheduledAt = \Carbon\Carbon::parse($validated['scheduled_at']);
+        $appointmentStart = \Carbon\Carbon::parse($validated['scheduled_at']);
+        $appointmentEnd = $appointmentStart->copy()->addMinutes($specialist->consultation_duration_minutes);
+        $weekday = $appointmentStart->dayOfWeek;
+        $date = $appointmentStart->format('Y-m-d');
+
+        $hasMatchingAvailability = $specialist->availabilities
+            ->where('weekday', $weekday)
+            ->contains(function ($availability) use ($appointmentStart, $appointmentEnd, $date) {
+                $slotStart = \Carbon\Carbon::parse("{$date} {$availability->start_time}");
+                $slotEnd = \Carbon\Carbon::parse("{$date} {$availability->end_time}");
+
+                return $appointmentStart->gte($slotStart) && $appointmentEnd->lte($slotEnd);
+            });
+
+        if (! $hasMatchingAvailability) {
+            return back()
+                ->withInput()
+                ->withErrors(['scheduled_at' => 'El horario seleccionado está fuera de la disponibilidad del especialista.']);
+        }
+
+        $hasOverlap = Appointment::query()
+            ->where('specialist_id', $specialist->id)
+            ->whereIn('status', [AppointmentStatus::Scheduled, AppointmentStatus::Confirmed])
+            ->where('scheduled_at', '<', $appointmentEnd)
+            ->where('ends_at', '>', $appointmentStart)
+            ->exists();
+
+        if ($hasOverlap) {
+            return back()
+                ->withInput()
+                ->withErrors(['scheduled_at' => 'El especialista ya tiene una cita en ese horario.']);
+        }
 
         $appointment = Appointment::query()->create([
             'patient_id' => $request->user()->patient->id,
             'specialist_id' => $specialist->id,
             'specialty_id' => $validated['specialty_id'],
-            'scheduled_at' => $scheduledAt,
-            'ends_at' => $scheduledAt->copy()->addMinutes(30),
+            'scheduled_at' => $appointmentStart,
+            'ends_at' => $appointmentEnd,
             'status' => AppointmentStatus::Scheduled,
             'reason' => $validated['reason'],
         ]);

@@ -3,7 +3,7 @@
 namespace App\Modules\Identity\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Modules\AccessControl\Domain\RoleName;
+use App\Support\DashboardResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -41,7 +41,7 @@ class LoginController extends Controller
             ])->onlyInput('email');
         }
 
-        return redirect()->intended($this->dashboardRouteFor($user));
+        return redirect()->route(DashboardResolver::routeName($user));
     }
 
     public function destroy(Request $request): RedirectResponse
@@ -52,18 +52,5 @@ class LoginController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login');
-    }
-
-    private function dashboardRouteFor($user): string
-    {
-        if ($user->hasRole(RoleName::ADMIN)) {
-            return route('admin.dashboard');
-        }
-
-        if ($user->hasRole(RoleName::SPECIALIST)) {
-            return route('specialist.dashboard');
-        }
-
-        return route('patient.dashboard');
     }
 }
